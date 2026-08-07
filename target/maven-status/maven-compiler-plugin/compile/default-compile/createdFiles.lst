@@ -1,0 +1,6 @@
+benchmark/ResultadoParticionamento.class
+benchmark/ParticaoResult.class
+benchmark/SpatialPartitioner.class
+benchmark/algoritmos/FixedGridPartitioner.class
+benchmark/ParticaoMetadata.class
+benchmark/BenchmarkRunner.class

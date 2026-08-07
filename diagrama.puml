@@ -1,0 +1,52 @@
+@startuml
+skinparam componentStyle rectangle
+skinparam padding 4
+skinparam nodesep 60
+skinparam ranksep 60
+
+title Arquitetura do Projeto
+
+database "Datasets Brutos\n(WKT / GeoJSON)" as raw_data #LightGray
+
+package "Bloco 1: Java" #E8F8F5 {
+    component "Aplicação Java\n(Padrão Strategy)" as java_app #White
+    component "JTS (Java Topology Suite)\n- Extração de MBRs\n- Cálculo de Partição" as jts #White
+    file "Arquivo CSV gerado\n(Geometria + ID_Particao)" as csv_out #White
+}
+
+package "Bloco 2: PostgreSQL/PostGIS" #EBF5FB {
+    database "PostgreSQL\n(Tabela Principal)" as pg_main #White
+    collections "Fragmentação Física\n(Tabelas particionadas)" as particoes #White
+    artifact "Índices Espaciais Locais\n(R-Tree / GiST)" as indices #White
+}
+
+package "Bloco 3: Benchmark e Métricas" #FDEDEC {
+    component "Junção Espacial SQL\n(Workload Paralelo)" as workload #White
+    component "Etapa 1: Filtro\n(ST_Intersects em MBRs)" as filtro #White
+    component "Etapa 2: Refinamento\n(ST_Intersection exato)" as refino #White
+    component "Monitoramento\n(FESTIval / EXPLAIN ANALYZE)" as monitor #White
+    card "Resultados do TCC\n(Métricas de Tempo e CPU)" as resultados #White
+}
+
+' Relacionamentos Bloco 1
+raw_data --> java_app : " Lê arquivos"
+java_app --> jts : " Processa matemáticas"
+jts --> csv_out : " Gera rótulos"
+
+' Relacionamentos Transição 1 -> 2
+csv_out ==> pg_main : " Importação de Dados"
+
+' Relacionamentos Bloco 2
+pg_main --> particoes : " Particionamento\nDeclarativo"
+particoes --> indices : " Criação pelo PostGIS"
+
+' Relacionamentos Transição 2 -> 3
+indices ==> workload : " Consulta utiliza\níndices locais"
+
+' Relacionamentos Bloco 3
+workload --> filtro : " Processa 1ª fase"
+filtro --> refino : " Pares\nCandidatos"
+refino --> monitor : " Execução"
+monitor --> resultados : " Limpa cache e\ncoleta dados"
+
+@enduml
