@@ -39,7 +39,7 @@ public class FixedGridPartitioner implements SpatialPartitioner {
         // 3. Gerar as 4 fronteiras dinamicamente usando a JTS
         // O método toGeometry transforma uma caixa (Envelope) em um Polígono WKT
         Geometry q1 = gf.toGeometry(new Envelope(globalEnv.getMinX(), midX,globalEnv.getMinY(), midY)); // baixo esquerda
-        Geometry q2 = gf.toGeometry(new Envelope(midX, globalEnv.getMaxX(), midY, globalEnv.getMaxY())); //baixo direita
+        Geometry q2 = gf.toGeometry(new Envelope(midX, globalEnv.getMaxX(), globalEnv.getMinY(), midY)); //baixo direita
         Geometry q3 = gf.toGeometry(new Envelope(globalEnv.getMinX(), midX, midY, globalEnv.getMaxY())); // cima esquerda
         Geometry q4 = gf.toGeometry(new Envelope(midX, globalEnv.getMaxX(), midY, globalEnv.getMaxY())); // cima direita
 

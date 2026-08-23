@@ -1,39 +1,95 @@
 package benchmark;
 
 import benchmark.algoritmos.FixedGridPartitioner;
-import java.io.FileWriter;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import benchmark.ParticaoMetadata;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
 public class BenchmarkRunner {
+
+    private static final String URL = "jdbc:postgresql://localhost:5432/tcc_espacial";
+    private static final String USER = "postgres";
+    private static final String PASSWORD = "1234";
+
     public static void main(String[] args) {
-        try {
-            String inputPath = "src/main/resources/datasets/dados.wkt";
-            List<String> wkts = Files.readAllLines(Paths.get(inputPath));
+        List<Integer> ids = new ArrayList<>();
+        List<String> wkts = new ArrayList<>();
 
-            SpatialPartitioner partitioner = new FixedGridPartitioner();
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD)) {
+
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("TRUNCATE TABLE quadras_particionadas;");
+                System.out.println("Tabela particionada limpa com sucesso.");
+            }
+
+            // 1. EXTRAÇÃO
+            System.out.println("\nExtraindo dados do PostgreSQL...");
+            // Removi o LIMIT para puxar as 13 mil quadras de uma vez!
+            String sqlSelect = "SELECT id, ST_AsText(geom) AS wkt_geom FROM \"ARRUAMENTO_QUADRAS\";"; 
+            
+            try (PreparedStatement stmtSelect = conn.prepareStatement(sqlSelect);
+                 ResultSet rs = stmtSelect.executeQuery()) {
+                while (rs.next()) {
+                    ids.add(rs.getInt("id"));
+                    wkts.add(rs.getString("wkt_geom"));
+                }
+            }
+            System.out.println(wkts.size() + " geometrias carregadas na memória.");
+
+            // 2. PROCESSAMENTO (A sua classe entra aqui!)
+            System.out.println("\nExecutando FixedGridPartitioner...");
+            FixedGridPartitioner partitioner = new FixedGridPartitioner();
             ResultadoParticionamento resultado = partitioner.processar(wkts);
+            List<ParticaoResult> resultados = resultado.getDados();
 
-            // 1. GERA O CSV DOS DADOS
-            FileWriter dataWriter = new FileWriter("saida_dados.csv");
-            dataWriter.append("wkt;id_particao\n");
-            for (ParticaoResult res : resultado.getDados()) {
-                dataWriter.append(res.getWkt()).append(";").append(String.valueOf(res.getIdParticao())).append("\n");
+            // 3. CARGA (Devolvendo para o banco)
+            System.out.println("\nSalvando resultados nas partições físicas...");
+            String sqlInsert = "INSERT INTO quadras_particionadas (id, id_particao, geom) VALUES (?, ?, ST_GeomFromText(?, 31982));";
+            
+            try (PreparedStatement stmtInsert = conn.prepareStatement(sqlInsert)) {
+                for (int i = 0; i < resultados.size(); i++) {
+                    ParticaoResult res = resultados.get(i);
+                    
+                    stmtInsert.setInt(1, ids.get(i)); // Puxa o ID da nossa lista paralela
+                    stmtInsert.setInt(2, res.getIdParticao());
+                    stmtInsert.setString(3, res.getWkt()); // A geometria WKT
+                    
+                    stmtInsert.addBatch(); // Adiciona no pacote
+
+                    // Dispara o pacote para o banco a cada 500 registros para economizar RAM
+                    if (i > 0 && i % 500 == 0) {
+                        stmtInsert.executeBatch();
+                    }
+                }
+                stmtInsert.executeBatch(); // Dispara o que sobrou no final
             }
-            dataWriter.flush(); dataWriter.close();
 
-            // 2. GERA O CSV DAS FRONTEIRAS (O NOVO!)
-            FileWriter metaWriter = new FileWriter("saida_grades.csv");
-            metaWriter.append("id_particao;wkt_fronteira\n");
-            for (ParticaoMetadata meta : resultado.getGrades()) {
-                metaWriter.append(String.valueOf(meta.getIdParticao())).append(";").append(meta.getWktFronteira()).append("\n");
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("TRUNCATE TABLE grade_metadados;");
             }
-            metaWriter.flush(); metaWriter.close();
 
-            System.out.println("Sucesso! Os arquivos saida_dados.csv e saida_grades.csv foram gerados.");
+            List<ParticaoMetadata> grades = resultado.getGrades();
+            String sqlInsertGrade = "INSERT INTO grade_metadados (id_particao, geom) VALUES (?, ST_GeomFromText(?, 31982));";
+            
+            try (PreparedStatement stmtGrade = conn.prepareStatement(sqlInsertGrade)) {
+                for (ParticaoMetadata meta : grades) {
+                    stmtGrade.setInt(1, meta.getIdParticao()); // Use o getter correto da sua classe (getId() ou getIdParticao())
+                    stmtGrade.setString(2, meta.getWktFronteira());
+                    stmtGrade.executeUpdate();
+                }
+            }
+            System.out.println("Desenho da grade salvo na tabela 'grade_metadados'!");
+
+            System.out.println("\nSucesso Absoluto! Pipeline concluído.");
 
         } catch (Exception e) {
+            System.err.println("Erro fatal no pipeline: " + e.getMessage());
             e.printStackTrace();
         }
     }
