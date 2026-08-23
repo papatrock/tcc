@@ -22,15 +22,15 @@ public class BenchmarkRunner {
         List<String> wkts = new ArrayList<>();
 
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD)) {
-
+            
+            // ------------------ APAGA RESULTADO ANTERIORES ----------------
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute("TRUNCATE TABLE quadras_particionadas;");
                 System.out.println("Tabela particionada limpa com sucesso.");
             }
 
-            // 1. EXTRAÇÃO
+            // ------------------------ BUSCA DADOS -----------------------------------
             System.out.println("\nExtraindo dados do PostgreSQL...");
-            // Removi o LIMIT para puxar as 13 mil quadras de uma vez!
             String sqlSelect = "SELECT id, ST_AsText(geom) AS wkt_geom FROM \"ARRUAMENTO_QUADRAS\";"; 
             
             try (PreparedStatement stmtSelect = conn.prepareStatement(sqlSelect);
@@ -42,13 +42,13 @@ public class BenchmarkRunner {
             }
             System.out.println(wkts.size() + " geometrias carregadas na memória.");
 
-            // 2. PROCESSAMENTO (A sua classe entra aqui!)
+            // --------------------- PRÉ PROCESSAMENTO ------------
             System.out.println("\nExecutando FixedGridPartitioner...");
             FixedGridPartitioner partitioner = new FixedGridPartitioner();
             ResultadoParticionamento resultado = partitioner.processar(wkts);
             List<ParticaoResult> resultados = resultado.getDados();
 
-            // 3. CARGA (Devolvendo para o banco)
+            // -------------------- VOLTA PRO BANCO --------------
             System.out.println("\nSalvando resultados nas partições físicas...");
             String sqlInsert = "INSERT INTO quadras_particionadas (id, id_particao, geom) VALUES (?, ?, ST_GeomFromText(?, 31982));";
             
@@ -62,14 +62,15 @@ public class BenchmarkRunner {
                     
                     stmtInsert.addBatch(); // Adiciona no pacote
 
-                    // Dispara o pacote para o banco a cada 500 registros para economizar RAM
+                    // salva aos poucos (em pacotes)
                     if (i > 0 && i % 500 == 0) {
                         stmtInsert.executeBatch();
                     }
                 }
-                stmtInsert.executeBatch(); // Dispara o que sobrou no final
+                stmtInsert.executeBatch();
             }
-
+            
+            // ------------------- PRA DEBUG, DESENHA GRADE GERADA PELO ALGORITMO
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute("TRUNCATE TABLE grade_metadados;");
             }
