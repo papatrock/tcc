@@ -18,80 +18,80 @@ public class BenchmarkRunner {
     private static final String PASSWORD = "1234";
 
     public static void main(String[] args) {
-        List<Integer> ids = new ArrayList<>();
-        List<String> wkts = new ArrayList<>();
+        List<Integer> idsQuadras = new ArrayList<>();
+        List<String> wktsQuadras = new ArrayList<>();
+        List<Integer> idsRuas = new ArrayList<>();
+        List<String> wktsRuas = new ArrayList<>();
 
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD)) {
-            
+
             // ------------------ APAGA RESULTADO ANTERIORES ----------------
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute("TRUNCATE TABLE quadras_particionadas;");
+                stmt.execute("TRUNCATE TABLE ruas_particionadas;");
                 System.out.println("Tabela particionada limpa com sucesso.");
             }
 
             // ------------------------ BUSCA DADOS -----------------------------------
             System.out.println("\nExtraindo dados do PostgreSQL...");
-            String sqlSelect = "SELECT id, ST_AsText(geom) AS wkt_geom FROM \"ARRUAMENTO_QUADRAS\";"; 
-            
-            try (PreparedStatement stmtSelect = conn.prepareStatement(sqlSelect);
-                 ResultSet rs = stmtSelect.executeQuery()) {
-                while (rs.next()) {
-                    ids.add(rs.getInt("id"));
-                    wkts.add(rs.getString("wkt_geom"));
-                }
-            }
-            System.out.println(wkts.size() + " geometrias carregadas na memória.");
+            System.out.println("Extraindo Quadras...");
+            extrairDados(conn, "SELECT ogc_fid AS id, ST_AsText(wkb_geometry) AS wkt_geom FROM arruamento_quadras;", idsQuadras, wktsQuadras);
+
+
+            System.out.println("Extraindo Ruas...");
+            extrairDados(conn, "SELECT ogc_fid AS id, ST_AsText(wkb_geometry) AS wkt_geom FROM eixo_rua;", idsRuas, wktsRuas);
 
             // --------------------- PRÉ PROCESSAMENTO ------------
             System.out.println("\nExecutando FixedGridPartitioner...");
             FixedGridPartitioner partitioner = new FixedGridPartitioner();
-            ResultadoParticionamento resultado = partitioner.processar(wkts);
-            List<ParticaoResult> resultados = resultado.getDados();
+            ResultadoParticionamento resQuadras = partitioner.processar(wktsQuadras);
+            ResultadoParticionamento resRuas = partitioner.processar(wktsRuas, resQuadras.getGrades());
 
             // -------------------- VOLTA PRO BANCO --------------
-            System.out.println("\nSalvando resultados nas partições físicas...");
-            String sqlInsert = "INSERT INTO quadras_particionadas (id, id_particao, geom) VALUES (?, ?, ST_GeomFromText(?, 31982));";
-            
-            try (PreparedStatement stmtInsert = conn.prepareStatement(sqlInsert)) {
-                for (int i = 0; i < resultados.size(); i++) {
-                    ParticaoResult res = resultados.get(i);
-                    
-                    stmtInsert.setInt(1, ids.get(i)); // Puxa o ID da nossa lista paralela
-                    stmtInsert.setInt(2, res.getIdParticao());
-                    stmtInsert.setString(3, res.getWkt()); // A geometria WKT
-                    
-                    stmtInsert.addBatch(); // Adiciona no pacote
+            System.out.println("\nSalvando Quadras Particionadas...");
+            salvarDados(conn, "INSERT INTO quadras_particionadas (id, id_particao, geom) VALUES (?, ?, ST_GeomFromText(?, 31982));", idsQuadras, resQuadras.getDados());
 
-                    // salva aos poucos (em pacotes)
-                    if (i > 0 && i % 500 == 0) {
-                        stmtInsert.executeBatch();
-                    }
-                }
-                stmtInsert.executeBatch();
-            }
-            
-            // ------------------- PRA DEBUG, DESENHA GRADE GERADA PELO ALGORITMO
+            System.out.println("Salvando Ruas Particionadas...");
+            salvarDados(conn, "INSERT INTO ruas_particionadas (id, id_particao, geom) VALUES (?, ?, ST_GeomFromText(?, 31982));", idsRuas, resRuas.getDados());
+
+            // -------------------- SALVA METADADOS --------------
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute("TRUNCATE TABLE grade_metadados;");
             }
-
-            List<ParticaoMetadata> grades = resultado.getGrades();
-            String sqlInsertGrade = "INSERT INTO grade_metadados (id_particao, geom) VALUES (?, ST_GeomFromText(?, 31982));";
-            
-            try (PreparedStatement stmtGrade = conn.prepareStatement(sqlInsertGrade)) {
-                for (ParticaoMetadata meta : grades) {
-                    stmtGrade.setInt(1, meta.getIdParticao()); // Use o getter correto da sua classe (getId() ou getIdParticao())
+            try (PreparedStatement stmtGrade = conn.prepareStatement("INSERT INTO grade_metadados (id_particao, geom) VALUES (?, ST_GeomFromText(?, 31982));")) {
+                for (ParticaoMetadata meta : resQuadras.getGrades()) {
+                    stmtGrade.setInt(1, meta.getIdParticao());
                     stmtGrade.setString(2, meta.getWktFronteira());
                     stmtGrade.executeUpdate();
                 }
             }
-            System.out.println("Desenho da grade salvo na tabela 'grade_metadados'!");
 
-            System.out.println("\nSucesso Absoluto! Pipeline concluído.");
-
-        } catch (Exception e) {
-            System.err.println("Erro fatal no pipeline: " + e.getMessage());
+            System.out.println("\nPipeline Finalizado! O banco está pronto para o Spatial Join.");
+        }
+        catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void extrairDados(Connection conn, String sql, List<Integer> ids, List<String> wkts) throws Exception {
+        try (PreparedStatement stmt = conn.prepareStatement(sql); ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                ids.add(rs.getInt("id"));
+                wkts.add(rs.getString("wkt_geom"));
+            }
+        }
+    }
+
+    private static void salvarDados(Connection conn, String sql, List<Integer> ids, List<ParticaoResult> resultados) throws Exception {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (int i = 0; i < resultados.size(); i++) {
+                stmt.setInt(1, ids.get(i));
+                stmt.setInt(2, resultados.get(i).getIdParticao());
+                stmt.setString(3, resultados.get(i).getWkt());
+                stmt.addBatch();
+                if (i > 0 && i % 500 == 0) stmt.executeBatch();
+            }
+            stmt.executeBatch();
         }
     }
 }

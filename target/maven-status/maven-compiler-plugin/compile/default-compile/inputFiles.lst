@@ -1,6 +1,6 @@
-/home/pol/tcc/src/main/java/benchmark/BenchmarkRunner.java
-/home/pol/tcc/src/main/java/benchmark/ResultadoParticionamento.java
-/home/pol/tcc/src/main/java/benchmark/ParticaoResult.java
-/home/pol/tcc/src/main/java/benchmark/SpatialPartitioner.java
-/home/pol/tcc/src/main/java/benchmark/ParticaoMetadata.java
-/home/pol/tcc/src/main/java/benchmark/algoritmos/FixedGridPartitioner.java
+/discolocal/patrick.lemes/projetos/tcc/src/main/java/benchmark/BenchmarkRunner.java
+/discolocal/patrick.lemes/projetos/tcc/src/main/java/benchmark/ParticaoMetadata.java
+/discolocal/patrick.lemes/projetos/tcc/src/main/java/benchmark/ParticaoResult.java
+/discolocal/patrick.lemes/projetos/tcc/src/main/java/benchmark/ResultadoParticionamento.java
+/discolocal/patrick.lemes/projetos/tcc/src/main/java/benchmark/SpatialPartitioner.java
+/discolocal/patrick.lemes/projetos/tcc/src/main/java/benchmark/algoritmos/FixedGridPartitioner.java

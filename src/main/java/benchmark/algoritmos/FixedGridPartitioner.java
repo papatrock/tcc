@@ -65,4 +65,34 @@ public class FixedGridPartitioner implements SpatialPartitioner {
 
         return new ResultadoParticionamento(resultados, metadados);
     }
+
+    public ResultadoParticionamento processar(List<String> wkts, List<ParticaoMetadata> molde) throws Exception {
+        List<ParticaoResult> resultados = new ArrayList<>();
+        WKTReader reader = new WKTReader();
+
+        // 1. Converte o WKT do molde de volta para Polígonos JTS
+        List<Geometry> gavetas = new ArrayList<>();
+        for (ParticaoMetadata meta : molde) {
+            gavetas.add(reader.read(meta.getWktFronteira()));
+        }
+
+        // 2. Classifica cada Rua nas gavetas existentes
+        for (String wkt : wkts) {
+            Geometry geom = reader.read(wkt);
+            Point centroid = geom.getCentroid();
+
+            int idParticao = 1; // Fallback caso caia na linha exata
+
+            for (int i = 0; i < gavetas.size(); i++) {
+                if (gavetas.get(i).contains(centroid)) {
+                    idParticao = molde.get(i).getIdParticao();
+                    break;
+                }
+            }
+            resultados.add(new ParticaoResult(wkt, idParticao));
+        }
+
+        // Retorna os dados particionados (repassando o molde original)
+        return new ResultadoParticionamento(resultados, molde);
+    }
 }
